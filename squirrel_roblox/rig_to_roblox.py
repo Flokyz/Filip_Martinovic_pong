@@ -4,6 +4,7 @@
 #   blender --background RakunFBX.blend --python rakun_to_roblox.py
 # or open RakunFBX.blend, Scripting tab -> open this file -> Run Script.
 #   Optional env vars: RIG_NAME=Squirrel RIG_ACTIONS="Idle:Idle,Walking:Walk"
+#   RIG_FBX=Deer.fbx starts from an FBX exported from a Rigify rig instead of a .blend.
 import bpy, bmesh, os
 from mathutils import Matrix
 
@@ -12,6 +13,10 @@ SRC_RIG = 'rig'
 ACTIONS = [tuple(p.split(':')) for p in os.environ.get('RIG_ACTIONS', 'Idlee:Idle,Walking:Walk').split(',')]
 NEW_NAME = os.environ.get('RIG_NAME', 'Rakun')
 OUT_DIR = os.environ.get('RAKUN_OUT') or bpy.path.abspath('//roblox_export')
+
+if os.environ.get('RIG_FBX'):
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    bpy.ops.import_scene.fbx(filepath=os.environ['RIG_FBX'])
 
 scene = bpy.context.scene
 view_layer = bpy.context.view_layer
@@ -26,7 +31,15 @@ def clean(n):
     return 'Root' if n == 'root' else (n[4:] if n.startswith('DEF-') else n)
 
 
-export = ['root'] + [b.name for b in bones if b.use_deform]
+# FBX import marks every bone as deform, so prefer Rigify's DEF- naming when present.
+HAS_DEF_PREFIX = any(b.name.startswith('DEF-') for b in bones)
+
+
+def is_def(b):
+    return b.name.startswith('DEF-') if HAS_DEF_PREFIX else b.use_deform
+
+
+export = ['root'] + [b.name for b in bones if is_def(b)]
 
 
 def deform_subtree(name):
@@ -34,7 +47,7 @@ def deform_subtree(name):
     while stack:
         b = stack.pop()
         out.add(b.name)
-        stack.extend(c for c in b.children if c.use_deform)
+        stack.extend(c for c in b.children if is_def(c))
     return out
 
 
@@ -42,7 +55,7 @@ def find_parent(name):
     b = bones[name]
     if name == 'root':
         return None
-    if b.parent and b.parent.use_deform:
+    if b.parent and is_def(b.parent):
         return b.parent.name
     sub = deform_subtree(name)
     # Rigify parents each DEF bone under ORG bones; the ORG bone's DEF twin is the anatomical parent.
@@ -50,7 +63,7 @@ def find_parent(name):
     while p:
         if p.name.startswith('ORG-'):
             cand = 'DEF-' + p.name[4:]
-            if cand in bones and bones[cand].use_deform and cand not in sub:
+            if cand in bones and is_def(bones[cand]) and cand not in sub:
                 return cand
         p = p.parent
     if meta:
