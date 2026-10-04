@@ -3,12 +3,14 @@
 # Run on a COPY of the file: it deletes the Rigify rig from the open scene.
 #   blender --background RakunFBX.blend --python rakun_to_roblox.py
 # or open RakunFBX.blend, Scripting tab -> open this file -> Run Script.
-import bpy, os
+#   Optional env vars: RIG_NAME=Squirrel RIG_ACTIONS="Idle:Idle,Walking:Walk"
+import bpy, bmesh, os
 from mathutils import Matrix
 
 SRC_RIG = 'rig'
-ACTIONS = [('Idlee', 'Idle'), ('Walking', 'Walk')]  # (Rigify control action, exported name)
-NEW_NAME = 'Rakun'
+# (Rigify control action, exported name)
+ACTIONS = [tuple(p.split(':')) for p in os.environ.get('RIG_ACTIONS', 'Idlee:Idle,Walking:Walk').split(',')]
+NEW_NAME = os.environ.get('RIG_NAME', 'Rakun')
 OUT_DIR = os.environ.get('RAKUN_OUT') or bpy.path.abspath('//roblox_export')
 
 scene = bpy.context.scene
@@ -176,6 +178,12 @@ for o in meshes:
     mw = o.matrix_world.copy()
     o.parent = None
     o.data.transform(mw)
+    if mw.determinant() < 0:  # mirrored object: baking the negative scale turns faces inside out
+        bm = bmesh.new()
+        bm.from_mesh(o.data)
+        bmesh.ops.reverse_faces(bm, faces=bm.faces[:])
+        bm.to_mesh(o.data)
+        bm.free()
     o.matrix_world = Matrix()
     o.parent = new
     o.matrix_parent_inverse = new.matrix_world.inverted()
@@ -212,6 +220,8 @@ keep = {a for a, _, _ in new_actions.values()}
 for a in list(bpy.data.actions):
     if a not in keep:
         bpy.data.actions.remove(a)
+for dst, (act, _, _) in new_actions.items():
+    act.name = dst  # drop the .001 suffix from clashing with the removed source action
 for c in list(bpy.data.collections):
     if c.name.startswith('WGTS') and not c.all_objects:
         bpy.data.collections.remove(c)
