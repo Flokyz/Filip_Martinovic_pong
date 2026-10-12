@@ -3,14 +3,14 @@
 # Run on a COPY of the file: it deletes the Rigify rig from the open scene.
 #   blender --background RakunFBX.blend --python rakun_to_roblox.py
 # or open RakunFBX.blend, Scripting tab -> open this file -> Run Script.
-#   Optional env vars: RIG_NAME=Squirrel RIG_ACTIONS="Idle:Idle,Walking:Walk"
+#   Optional env vars: RIG_NAME=Squirrel RIG_ACTIONS="Idle:Idle,Walking:Walk:1:60"
+#   (source:export name[:first frame:last frame], defaults to the action's key range)
 #   RIG_FBX=Deer.fbx starts from an FBX exported from a Rigify rig instead of a .blend.
 import bpy, bmesh, os
 from mathutils import Matrix
 
 SRC_RIG = 'rig'
-# (Rigify control action, exported name)
-ACTIONS = [tuple(p.split(':')) for p in os.environ.get('RIG_ACTIONS', 'Idlee:Idle,Walking:Walk').split(',')]
+ACTIONS = [p.split(':') for p in os.environ.get('RIG_ACTIONS', 'Idlee:Idle,Walking:Walk').split(',')]
 NEW_NAME = os.environ.get('RIG_NAME', 'Rakun')
 OUT_DIR = os.environ.get('RAKUN_OUT') or bpy.path.abspath('//roblox_export')
 
@@ -93,6 +93,7 @@ print("REPORT reparented:", {clean(n): clean(parent_of[n]) for n in export
 dg = bpy.context.evaluated_depsgraph_get()
 if rig.animation_data is None:
     rig.animation_data_create()
+rig.animation_data.use_nla = False  # bake only the chosen action, nothing blended in from NLA
 caps, mesh_caps, max_scale_dev = {}, {}, 0.0
 
 
@@ -104,10 +105,10 @@ def mesh_world_verts(o):
     return vs
 
 
-for src, dst in ACTIONS:
+for src, dst, *rng in ACTIONS:
     act = bpy.data.actions[src]
     rig.animation_data.action = act
-    f0, f1 = (int(round(x)) for x in act.frame_range)
+    f0, f1 = (int(x) for x in rng) if rng else (int(round(x)) for x in act.frame_range)
     frames, mframes = {}, {}
     for f in range(f0, f1 + 1):
         scene.frame_set(f)
