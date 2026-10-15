@@ -6,6 +6,7 @@
 #   Optional env vars: RIG_NAME=Squirrel RIG_ACTIONS="Idle:Idle,Walking:Walk:1:60"
 #   (source:export name[:first frame:last frame], defaults to the action's key range)
 #   RIG_FBX=Deer.fbx starts from an FBX exported from a Rigify rig instead of a .blend.
+#   RIG_PARENTS="DEF-Rog.L:DEF-spine.010,..." forces a deform bone's parent.
 import bpy, bmesh, os
 from mathutils import Matrix
 
@@ -51,20 +52,30 @@ def deform_subtree(name):
     return out
 
 
+PARENT_OVERRIDES = dict(p.split(':') for p in os.environ.get('RIG_PARENTS', '').split(',') if p)
+
+
 def find_parent(name):
     b = bones[name]
     if name == 'root':
         return None
+    if name in PARENT_OVERRIDES:
+        return PARENT_OVERRIDES[name]
     if b.parent and is_def(b.parent):
         return b.parent.name
+    if b.parent and b.parent.name == 'root':
+        return 'root'
     sub = deform_subtree(name)
-    # Rigify parents each DEF bone under ORG bones; the ORG bone's DEF twin is the anatomical parent.
+    # Rigify parents each DEF bone under ORG/tweak/MCH bones; their DEF twin is the anatomical parent.
     p = b.parent
     while p:
-        if p.name.startswith('ORG-'):
-            cand = 'DEF-' + p.name[4:]
-            if cand in bones and is_def(bones[cand]) and cand not in sub:
-                return cand
+        base = p.name
+        for pre in ('ORG-', 'MCH-', 'tweak_'):
+            if base.startswith(pre):
+                base = base[len(pre):]
+        cand = 'DEF-' + base
+        if cand in bones and is_def(bones[cand]) and cand not in sub:
+            return cand
         p = p.parent
     if meta:
         mb = meta.data.bones.get(name[4:])
@@ -74,6 +85,12 @@ def find_parent(name):
             if cand in bones and cand not in sub:
                 return cand
             p = p.parent
+    # No metarig (e.g. FBX input): attach to the deform bone this chain touches end-to-end.
+    ends = [p for s in sub for p in (bones[s].head_local, bones[s].tail_local)]
+    for c in bones:
+        if is_def(c) and c.name not in sub and any(
+                (p - q).length < 1e-4 for p in (c.head_local, c.tail_local) for q in ends):
+            return c.name
     return 'root'
 
 
