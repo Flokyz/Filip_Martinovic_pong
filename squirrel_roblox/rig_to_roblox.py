@@ -218,9 +218,11 @@ for o in meshes:
     o.matrix_world = Matrix()
     o.parent = new
     o.matrix_parent_inverse = new.matrix_world.inverted()
-    for m in o.modifiers:
+    for m in list(o.modifiers):
         if m.type == 'ARMATURE' and m.object == rig:
             m.object = new
+        elif m.type == 'ARMATURE' and m.object is None:
+            o.modifiers.remove(m)  # empty leftover; the FBX exporter could pick it as the skin
     for vg in list(o.vertex_groups):
         if vg.name.startswith('DEF-'):
             vg.name = vg.name[4:]
