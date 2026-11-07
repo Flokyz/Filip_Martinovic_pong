@@ -21,7 +21,10 @@ if os.environ.get('RIG_FBX'):
 
 scene = bpy.context.scene
 view_layer = bpy.context.view_layer
-rig = bpy.data.objects[SRC_RIG]
+rig = bpy.data.objects.get(SRC_RIG)
+if rig is None:  # e.g. "rig.002": use the armature the skinned meshes are bound to
+    rig = next(m.object for o in bpy.data.objects if o.type == 'MESH' for m in o.modifiers
+               if m.type == 'ARMATURE' and m.object and m.object.name != 'metarig')
 bones = rig.data.bones
 meta = bpy.data.objects.get('metarig')
 meshes = [o for o in bpy.data.objects if o.type == 'MESH'
